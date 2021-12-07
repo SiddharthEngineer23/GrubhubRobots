@@ -106,10 +106,6 @@ def run_sim(log=False, optimize=True, robots=50, proportional_robots=True, hours
     NORMALIZED_RESTAURANT_DEMAND = RELATIVE_RESTAURANT_DEMAND / sum(RELATIVE_RESTAURANT_DEMAND)
     ORDERS_PER_PERSON_PER_MINUTE_PER_RESTAURANT = NORMALIZED_RESTAURANT_DEMAND * ORDERS_PER_PERSON_PER_MINUTE
 
-    # expected number of orders per minute from dorm d to restaurant r: lambdas[r][d]
-    # outer product ⊗
-    lambdas = np.outer(ORDERS_PER_PERSON_PER_MINUTE_PER_RESTAURANT, populations)
-
     # robots at each restaurant: robots[r]
     if proportional_robots:
         r = cp.Variable(RESTAURANTS, integer=True)
@@ -124,8 +120,9 @@ def run_sim(log=False, optimize=True, robots=50, proportional_robots=True, hours
         for i in range(ROBOTS):
             robots[i % RESTAURANTS] += 1
 
-    t = 0
-    minutes_waited = 0
+    # expected number of orders per minute from dorm d to restaurant r: lambdas[r][d]
+    # outer product ⊗
+    lambdas = np.outer(ORDERS_PER_PERSON_PER_MINUTE_PER_RESTAURANT, populations)
 
     # orders for minute t from dorm d to restaurant r: orders[t][r][d]
     orders = np.random.poisson(lambdas, size=(TOTAL_MINUTES, RESTAURANTS, DORMS))
@@ -139,6 +136,9 @@ def run_sim(log=False, optimize=True, robots=50, proportional_robots=True, hours
 
     # queue of minute-orders-legs being processed by restaurant r: processing_minute_orders[r]
     processing_minute_orders_legs = [[] for _ in range(RESTAURANTS)]
+
+    t = 0
+    minutes_waited = 0
 
     def waiting_time(minute_order_legs, robots) -> float:
         time = 0
@@ -161,6 +161,15 @@ def run_sim(log=False, optimize=True, robots=50, proportional_robots=True, hours
         return waiting_time(all_legs, robots[r]), waiting_time(all_legs, robots[r]+1)
 
     def run_minute():
+        ''' Simulate the passage of a minute by:
+            * inserting orders from our poisson distribution sample matrix
+            into the current pending orders
+            * updating the currently processing orders to have one minute
+            less time to finish, recording robots that will be returning
+            * decide on the return restaurant for each returning robot
+            * move orders from the pending list to the processing list
+            as robots become available to start deliverying them
+        '''
         # insert pending orders
         for r in range(RESTAURANTS):
             pending_minute_orders[r] += list(minute_orders[t][r][minute_orders[t][r] != 0])
@@ -185,7 +194,7 @@ def run_sim(log=False, optimize=True, robots=50, proportional_robots=True, hours
         # decide return restaurants
         if optimize:
             for r in range(RESTAURANTS):
-                for rr in returning_robots[r]:
+                for _ in returning_robots[r]:
                     robots[r] -= 1
 
                     diffs = []
@@ -196,17 +205,18 @@ def run_sim(log=False, optimize=True, robots=50, proportional_robots=True, hours
                             diff = 0
                         diffs.append(diff)
 
-                    # x = cp.Variable(RESTAURANTS+1, boolean=True, name=f'(t={t},r={r},i={rr})')
-                    # constraints = [(robots[i] + x[i]) >= 1 for i in range(RESTAURANTS)] # all positive robots
-                    # constraints.append(cp.sum(x) == 1) # robots 
-                    # obj_func = sum([ x[i] * diffs[i] for i in range(RESTAURANTS) ]) + x[RESTAURANTS]/1e3
+                    # optimize decision variables
+                    # x = cp.Variable(RESTAURANTS, boolean=True, name=f'(t={t},r={r})')
+                    # constraints = [(robots[i] + x[i]) >= 1 for i in range(RESTAURANTS)] # all restaurants have robots
+                    # constraints.append(cp.sum(x) == 1) # robot at hand returns to exactly one restaurant
+
+                    # obj_func = sum([ x[i] * (diffs[i] + (i == r) * 1e-3) for i in range(RESTAURANTS) ])
                     # problem = cp.Problem(cp.Maximize(obj_func), constraints)
                     # problem.solve(solver=cp.GUROBI)
 
                     # return_restaurant = np.flatnonzero(x.value)[0]
-                    # if return_restaurant == RESTAURANTS:
-                    #     return_restaurant = r
 
+                    # faster, but looser optimization algorithm for running many simulations
                     if diffs == [0 for _ in range(RESTAURANTS)] or robots[r] == 0:
                         return_restaurant = r
                     else:
@@ -253,9 +263,8 @@ print('robots,hours,demand,relative_demand,unoptimized,optimized')
 relative_demand = np.array([3,1,1.5,1,1,1,3])
 demand = .05
 
-normalized_demand = relative_demand / sum(relative_demand)
 for robots in range(30,100,5):
     for hours in range(8,13):
         minutes = average_saved(robots=robots, hours=hours, demand=demand, relative_demand=relative_demand)
         
-        print(f'{robots},{hours},{demand*100}%,{[round(i,2) for i in normalized_demand]},{minutes[0]},{minutes[1]}')
+        print(f'{robots},{hours},{demand*100}%,{[round(i,2) for i in relative_demand / sum(relative_demand)]},{minutes[0]},{minutes[1]}')

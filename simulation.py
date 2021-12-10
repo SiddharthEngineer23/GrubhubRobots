@@ -206,21 +206,21 @@ def run_sim(log=False, optimize=True, robots=50, proportional_robots=True, hours
                         diffs.append(diff)
 
                     # optimize decision variables
-                    # x = cp.Variable(RESTAURANTS, boolean=True, name=f'(t={t},r={r})')
-                    # constraints = [(robots[i] + x[i]) >= 1 for i in range(RESTAURANTS)] # all restaurants have robots
-                    # constraints.append(cp.sum(x) == 1) # robot at hand returns to exactly one restaurant
+                    x = cp.Variable(RESTAURANTS, boolean=True, name=f'(t={t},r={r})')
+                    constraints = [(robots[i] + x[i]) >= 1 for i in range(RESTAURANTS)] # all restaurants have robots
+                    constraints.append(cp.sum(x) == 1) # robot at hand returns to exactly one restaurant
 
-                    # obj_func = sum([ x[i] * (diffs[i] + (i == r) * 1e-3) for i in range(RESTAURANTS) ])
-                    # problem = cp.Problem(cp.Maximize(obj_func), constraints)
-                    # problem.solve(solver=cp.GUROBI)
+                    obj_func = sum([ x[i] * (diffs[i] + (i == r) * 1e-3) for i in range(RESTAURANTS) ])
+                    problem = cp.Problem(cp.Maximize(obj_func), constraints)
+                    problem.solve(solver=cp.GUROBI)
 
-                    # return_restaurant = np.flatnonzero(x.value)[0]
+                    return_restaurant = np.flatnonzero(x.value)[0]
 
                     # faster, but looser optimization algorithm for running many simulations
-                    if diffs == [0 for _ in range(RESTAURANTS)] or robots[r] == 0:
-                        return_restaurant = r
-                    else:
-                        return_restaurant = diffs.index(max(diffs))
+                    # if diffs == [0 for _ in range(RESTAURANTS)] or robots[r] == 0:
+                    #     return_restaurant = r
+                    # else:
+                    #     return_restaurant = diffs.index(max(diffs))
 
                     robots[return_restaurant] += 1
 
